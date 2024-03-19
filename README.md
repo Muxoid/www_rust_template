@@ -1,0 +1,1 @@
+# www_rust_template
