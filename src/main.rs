@@ -9,7 +9,7 @@ async fn main() -> std::io::Result<()> {
         App::new().configure(router::routes::config)
         // Add more routes for creating, updating, and deleting users
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("0.0.0.0", 8080))?
     .run()
     .await
 }

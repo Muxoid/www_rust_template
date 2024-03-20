@@ -1,13 +1,51 @@
 version: "3.8"
 
+networks:
+  web-services:
+    driver: bridge
+
 services:
+  rustapp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/usr/src/rust_app
+    ports:
+      - "8080:8080"
+    environment:
+      - RUST_LOG=debug
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - web-services
+
   redis:
     image: redis:latest
     container_name: redis_server
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - ./redis_data:/data
+    networks:
+      - web-services
+
+  postgres:
+    image: postgres:latest
+    hostname: rust_db
+    container_name: rust_db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: www_rust_template
+      POSTGRES_USER: i_use_arch_btw
+      POSTGRES_PASSWORD: linux_is_the_best
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    networks:
+      - web-services
 
 volumes:
   redis_data:
+  postgres_data:
