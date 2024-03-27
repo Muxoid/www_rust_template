@@ -9,6 +9,7 @@ use askama::Template;
 use serde::Deserialize;
 use sqlx::Error as SqlxError; // Make sure this import is correct
 
+use crate::auth;
 use crate::db;
 
 #[derive(Template)]
@@ -32,6 +33,10 @@ struct LoginForm {
 
 #[post("/login")]
 async fn login(form: web::Form<LoginForm>) -> impl Responder {
+    let token = match auth::jwt::generate_jwt() {
+        Ok(t) => t,
+        Err(_) => return HttpResponse::InternalServerError().body("JWT Generation Failed"),
+    };
     let template = IndexTemplate;
     match template.render() {
         Ok(html) => HttpResponse::Ok().content_type("text/html").body(html),
