@@ -27,13 +27,15 @@ async fn login_form() -> impl Responder {
 
 #[derive(Deserialize)]
 struct LoginForm {
-    username: String,
+    email_or_username: String,
     password: String,
 }
 
 #[post("/login")]
 async fn login(form: web::Form<LoginForm>) -> impl Responder {
-    let token = match auth::jwt::generate_jwt() {
+    let user = db::query::get_one_user(form.email_or_username).await;
+
+    let token = match auth::jwt::create_token(user.id) {
         Ok(t) => t,
         Err(_) => return HttpResponse::InternalServerError().body("JWT Generation Failed"),
     };

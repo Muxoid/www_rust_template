@@ -1,25 +1,32 @@
-use actix_web::cookie::time::Duration;
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, TimeDelta, Utc};
 use dotenv::dotenv;
 use jsonwebtoken::{
-    decode, encode, Algorithm, Claims, DecodingKey, EncodingKey, Header, Validation,
+    decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation,
 };
+use serde::{Deserialize, Serialize};
 use std::env;
 
-fn create_token(user_id: &str) -> Result<String, jsonwebtoken::errors::Error> {
+#[derive(Debug, Serialize, Deserialize)]
+struct Claims {
+    sub: u64,
+    exp: u64,
+}
+
+pub fn create_token(user_id: u64) -> Result<String, jsonwebtoken::errors::Error> {
     dotenv().ok();
     let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET can not be fetched.");
 
-    let now = chrono::Utc::now();
-    let exp = now + Duration::minutes(5).num_miliseconds();
-    match expiration {
-        Ok(Expiration) => Ok(Expiration),
-        Err(e) => println!("An error occurred: {}", e),
-    }
+    let now: DateTime<Utc> = Utc::now();
+    let delta: Option<TimeDelta> =
+        Some(TimeDelta::try_minutes(5).expect("Could not get time delta!"));
+    let exp: u64 = match delta {
+        Some(exp) => exp.num_seconds() as u64,
+        None => 0,
+    };
 
     let claims = Claims {
         sub: user_id.to_owned(),
-        exp: expiration as usize,
+        exp: exp as u64,
     };
 
     encode(
@@ -39,8 +46,8 @@ fn decode_token(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
     )
     .map(|data| data.claims)
 }
-
-async fn validate_jwt(
+/*
+pub async fn validate_jwt(
     req: ServiceRequest,
     credentials: BearerAuth,
 ) -> Result<ServiceRequest, (Error, ServiceRequest)> {
@@ -49,3 +56,4 @@ async fn validate_jwt(
         Err(_) => Err((actix_web::error::ErrorUnauthorized("Invalid token"), req)),
     }
 }
+*/

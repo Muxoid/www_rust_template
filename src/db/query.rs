@@ -8,7 +8,7 @@ use sqlx::Error;
 
 pub async fn get_users() -> Result<Vec<User>, Error> {
     let db = connect().await?;
-    let users = sqlx::query_as!(User, "SELECT id, name, email FROM users")
+    let users = sqlx::query_as!(User, "SELECT id, name, email, password_hash FROM users")
         .fetch_all(&db)
         .await?;
     Ok(users)
@@ -33,4 +33,16 @@ pub async fn create_user(name: String, email: String, password: String) -> Resul
     .execute(&db)
     .await?;
     Ok(())
+}
+
+pub async fn get_one_user(email_or_username: String) -> Result<User, Error> {
+    let db = connect().await?;
+    let user = sqlx::query_as!(
+        User,
+        "SELECT id, name, email, password_hash FROM users where name = $1 or email = $1",
+        email_or_username
+    )
+    .fetch_one(&db)
+    .await?;
+    Ok(user)
 }
