@@ -1,3 +1,4 @@
+use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, TimeDelta, Utc};
 use dotenv::dotenv;
 use jsonwebtoken::{
@@ -8,19 +9,20 @@ use std::env;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
-    sub: u64,
+    sub: i64,
     exp: u64,
 }
 
-pub fn create_token(user_id: u64) -> Result<String, jsonwebtoken::errors::Error> {
+pub fn create_token(user_id: i64) -> Result<String, jsonwebtoken::errors::Error> {
     dotenv().ok();
     let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET can not be fetched.");
 
     let now: DateTime<Utc> = Utc::now();
+    let now_epoch: i64 = now.timestamp();
     let delta: Option<TimeDelta> =
         Some(TimeDelta::try_minutes(5).expect("Could not get time delta!"));
-    let exp: u64 = match delta {
-        Some(exp) => exp.num_seconds() as u64,
+    let exp: i64 = match delta {
+        Some(exp) => exp.num_seconds() + now_epoch,
         None => 0,
     };
 

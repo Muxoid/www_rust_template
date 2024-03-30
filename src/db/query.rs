@@ -1,19 +1,22 @@
 use crate::db::models::User;
 use crate::db::pool::connect;
+use crate::utils::error::AppError;
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use sqlx::Error;
+use sqlx::Error::RowNotFound;
 
-pub async fn get_users() -> Result<Vec<User>, Error> {
+#[tracing::instrument]
+pub async fn get_users() -> Result<Vec<User>, AppError> {
     let db = connect().await?;
     let users = sqlx::query_as!(User, "SELECT id, name, email, password_hash FROM users")
         .fetch_all(&db)
         .await?;
     Ok(users)
 }
-pub async fn create_user(name: String, email: String, password: String) -> Result<(), Error> {
+#[tracing::instrument(skip(password))]
+pub async fn create_user(name: String, email: String, password: String) -> Result<(), AppError> {
     let db = connect().await?;
 
     let salt = SaltString::generate(&mut OsRng);
@@ -35,14 +38,45 @@ pub async fn create_user(name: String, email: String, password: String) -> Resul
     Ok(())
 }
 
-pub async fn get_one_user(email_or_username: String) -> Result<User, Error> {
+#[tracing::instrument]
+pub async fn get_one_user(username: &String, email: &String) -> Result<Option<User>, AppError> {
     let db = connect().await?;
-    let user = sqlx::query_as!(
+    let user_result = sqlx::query_as!(
         User,
-        "SELECT id, name, email, password_hash FROM users where name = $1 or email = $1",
-        email_or_username
+        "SELECT id, name, email, password_hash FROM users where name = $1 or email = $2",
+        username,
+        email
     )
     .fetch_one(&db)
-    .await?;
-    Ok(user)
+    .await;
+
+    match user_result {
+        Ok(user) => Ok(Some(user)), // If a user is found, wrap it in Some and return
+        Err(e) => match e {
+            sqlx::Error::RowNotFound => Ok(None), // If no user is found, return None
+            _ => Err(e.into()), // For any other error, convert it into your AppError type and return it
+        },
+    }
+}
+
+#[tracing::instrument]
+pub async fn get_one_user_by_username_or_email(
+    username_or_email: &String,
+) -> Result<Option<User>, AppError> {
+    let db = connect().await?;
+    let user_result = sqlx::query_as!(
+        User,
+        "SELECT id, name, email, password_hash FROM users where name = $1 or email = $1",
+        username_or_email
+    )
+    .fetch_one(&db)
+    .await;
+
+    match user_result {
+        Ok(user) => Ok(Some(user)), // If a user is found, wrap it in Some and return
+        Err(e) => match e {
+            sqlx::Error::RowNotFound => Ok(None), // If no user is found, return None
+            _ => Err(e.into()), // For any other error, convert it into your AppError type and return it
+        },
+    }
 }

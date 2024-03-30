@@ -2,6 +2,7 @@ use actix_web::{middleware, App, HttpServer};
 mod auth;
 mod db;
 mod router;
+mod utils;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {

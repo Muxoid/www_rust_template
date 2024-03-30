@@ -1,16 +1,25 @@
+use crate::auth;
+use crate::db;
+use crate::db::models::User;
+use crate::utils::error::{AppError, AppErrorType};
+use actix_web::body::MessageBody;
 use actix_web::{
+    cookie,
+    cookie::Cookie,
     get,
     http::StatusCode,
     post,
     web::{self},
     App, Error, HttpResponse, HttpServer, Responder,
 };
+use anyhow::{Context, Result};
+use argon2::{
+    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
 use askama::Template;
 use serde::Deserialize;
 use sqlx::Error as SqlxError; // Make sure this import is correct
-
-use crate::auth;
-use crate::db;
 
 #[derive(Template)]
 #[template(path = "login.html")]
@@ -32,17 +41,36 @@ struct LoginForm {
 }
 
 #[post("/login")]
-async fn login(form: web::Form<LoginForm>) -> impl Responder {
-    let user = db::query::get_one_user(form.email_or_username).await;
+async fn login(form: web::Form<LoginForm>) -> Result<impl Responder, AppError> {
+    let template = LoginTemplate;
+    let username_or_email = &form.email_or_username;
+    let user_opt = db::query::get_one_user_by_username_or_email(username_or_email).await?;
+    let user = user_opt.ok_or(AppError::from(AppErrorType::UserNotFound))?;
 
-    let token = match auth::jwt::create_token(user.id) {
-        Ok(t) => t,
-        Err(_) => return HttpResponse::InternalServerError().body("JWT Generation Failed"),
-    };
-    let template = IndexTemplate;
-    match template.render() {
-        Ok(html) => HttpResponse::Ok().content_type("text/html").body(html),
-        Err(_) => HttpResponse::InternalServerError().body("Internal Server Error"),
+    let passwd = &form.password;
+    let password_hash = user.password_hash;
+    let parsed_hash = PasswordHash::new(&password_hash).expect("Parsing Password Failed");
+    let passwd_check: bool = Argon2::default()
+        .verify_password(&passwd.as_bytes(), &parsed_hash)
+        .is_ok();
+
+    if passwd_check {
+        let token = auth::jwt::create_token(user.id)?;
+        let cookie = Cookie::build("auth_token", token)
+            .secure(true)
+            .http_only(true)
+            .same_site(cookie::SameSite::Strict)
+            .path("/")
+            .finish();
+        match template.render() {
+            Ok(html) => Ok(HttpResponse::Ok()
+                .content_type("text/html")
+                .insert_header(("Set-Cookie", cookie.to_string()))
+                .body(html)),
+            Err(_) => Ok(HttpResponse::InternalServerError().body("Internal Server Error")),
+        }
+    } else {
+        Err(AppErrorType::IncorrectLogin)?
     }
 }
 
@@ -67,30 +95,25 @@ struct RegisterForm {
 }
 
 #[post("/register")]
-async fn register_user(form: web::Form<RegisterForm>) -> Result<impl Responder, Error> {
-    match db::query::create_user(
-        form.username.clone(),
-        form.email.clone(),
-        form.password.clone(),
-    )
-    .await
-    {
-        Ok(_) => Ok(HttpResponse::SeeOther()
-            .append_header(("Location", "/users"))
-            .finish()),
-
-        Err(e) => {
-            if let SqlxError::Database(db_err) = &e {
-                if db_err.code().map_or(false, |code| code == "23505") {
-                    // Handle the duplicate username error
-                    return Ok(HttpResponse::BadRequest()
-                        .content_type("text/html")
-                        .body("Username already exists."));
-                }
-            }
-            // For other errors, convert them into an internal server error
-            Err(actix_web::error::ErrorInternalServerError(e))
+async fn register_user(form: web::Form<RegisterForm>) -> Result<impl Responder, AppError> {
+    let username = &form.username;
+    let email = &form.email;
+    let user_opt = db::query::get_one_user(username, email).await?;
+    if user_opt.is_none() {
+        match db::query::create_user(
+            form.username.clone(),
+            form.email.clone(),
+            form.password.clone(),
+        )
+        .await
+        {
+            Ok(_) => Ok(HttpResponse::SeeOther()
+                .append_header(("Location", "/users"))
+                .finish()),
+            Err(_) => Err(AppErrorType::ErrorDB)?,
         }
+    } else {
+        Err(AppErrorType::UserAlreadyExists)?
     }
 }
 
@@ -123,6 +146,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(index)
         .service(users)
         .service(login_form)
+        .service(login)
         .service(register_user)
         .service(register_form);
 }

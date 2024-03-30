@@ -11,7 +11,9 @@ pub enum AppErrorType {
     IncorrectLogin,
     Display,
     InvalidInput,
+    UserAlreadyExists,
     UserNotFound,
+    ErrorDB,
     Unknown(String), // A catch-all for errors not specifically categorized
 }
 
