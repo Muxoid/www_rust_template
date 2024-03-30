@@ -18,8 +18,8 @@ use argon2::{
     Argon2,
 };
 use askama::Template;
-use serde::Deserialize;
-use sqlx::Error as SqlxError; // Make sure this import is correct
+use auth::jwt::Claims;
+use serde::{Deserialize, Serialize};
 
 #[derive(Template)]
 #[template(path = "login.html")]
@@ -55,7 +55,8 @@ async fn login(form: web::Form<LoginForm>) -> Result<impl Responder, AppError> {
         .is_ok();
 
     if passwd_check {
-        let token = auth::jwt::create_token(user.id)?;
+        let redirect_url = format!("/u/{}/profile", user.name);
+        let token = auth::jwt::create_token(user.name)?;
         let cookie = Cookie::build("auth_token", token)
             .secure(true)
             .http_only(true)
@@ -63,14 +64,59 @@ async fn login(form: web::Form<LoginForm>) -> Result<impl Responder, AppError> {
             .path("/")
             .finish();
         match template.render() {
-            Ok(html) => Ok(HttpResponse::Ok()
-                .content_type("text/html")
+            Ok(_) => Ok(HttpResponse::SeeOther()
                 .insert_header(("Set-Cookie", cookie.to_string()))
-                .body(html)),
+                .insert_header(("Location", redirect_url))
+                .finish()),
             Err(_) => Ok(HttpResponse::InternalServerError().body("Internal Server Error")),
         }
     } else {
         Err(AppErrorType::IncorrectLogin)?
+    }
+}
+
+#[derive(Template)]
+#[template(path = "profile.html")]
+struct UserProfileTemplate {
+    username: String,
+    email: String,
+}
+
+#[derive(Template)]
+#[template(path = "forbidden.html")]
+struct ForbiddenTemplate;
+
+#[get("/u/{username}/profile")]
+async fn profile(
+    claims: Claims,
+    username_path: web::Path<String>,
+) -> Result<impl Responder, AppError> {
+    let username = claims.sub;
+    let user_opt = db::query::get_one_user_by_username_or_email(&username).await?;
+
+    match user_opt {
+        Some(user) if username == username_path.to_string() => {
+            let template = UserProfileTemplate {
+                username: user.name,
+                email: user.email,
+                // Populate other fields as needed
+            };
+
+            let rendered = template
+                .render()
+                .map_err(|_| AppErrorType::TemplateRenderError)?;
+            Ok(HttpResponse::Ok().content_type("text/html").body(rendered))
+        }
+        Some(_) => {
+            let forbiden_template = ForbiddenTemplate;
+            let forbiden_rendered = forbiden_template
+                .render()
+                .map_err(|_| AppErrorType::TemplateRenderError)?;
+            Ok(HttpResponse::Forbidden()
+                .content_type("text/html")
+                .body(forbiden_rendered))
+        } // User exists but does not match the requested profile
+        None => Ok(HttpResponse::NotFound().finish()),
     }
 }
 
@@ -142,11 +188,25 @@ async fn index() -> impl Responder {
     HttpResponse::Ok().body(rendered)
 }
 
+#[derive(Template)]
+#[template(path = "not_found.html")]
+struct NotFOundTemplate;
+
+async fn not_found() -> impl Responder {
+    let template = NotFOundTemplate;
+    let rendered = template.render().expect("Could not render /users!");
+    HttpResponse::Ok().body(rendered)
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(index)
         .service(users)
         .service(login_form)
         .service(login)
         .service(register_user)
-        .service(register_form);
+        .service(register_form)
+        .service(profile)
+        .default_service(
+            web::route().to(not_found), // Use the custom not_found handler for unmatched routes
+        );
 }

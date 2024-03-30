@@ -2,10 +2,9 @@ use crate::db::models::User;
 use crate::db::pool::connect;
 use crate::utils::error::AppError;
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
     Argon2,
 };
-use sqlx::Error::RowNotFound;
 
 #[tracing::instrument]
 pub async fn get_users() -> Result<Vec<User>, AppError> {
@@ -46,6 +45,26 @@ pub async fn get_one_user(username: &String, email: &String) -> Result<Option<Us
         "SELECT id, name, email, password_hash FROM users where name = $1 or email = $2",
         username,
         email
+    )
+    .fetch_one(&db)
+    .await;
+
+    match user_result {
+        Ok(user) => Ok(Some(user)), // If a user is found, wrap it in Some and return
+        Err(e) => match e {
+            sqlx::Error::RowNotFound => Ok(None), // If no user is found, return None
+            _ => Err(e.into()), // For any other error, convert it into your AppError type and return it
+        },
+    }
+}
+
+#[tracing::instrument]
+pub async fn get_user_by_id(userID: i32) -> Result<Option<User>, AppError> {
+    let db = connect().await?;
+    let user_result = sqlx::query_as!(
+        User,
+        "SELECT id, name, email, password_hash FROM users where ID = $1 ",
+        userID
     )
     .fetch_one(&db)
     .await;

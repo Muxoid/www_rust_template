@@ -14,6 +14,7 @@ pub enum AppErrorType {
     UserAlreadyExists,
     UserNotFound,
     ErrorDB,
+    TemplateRenderError,
     Unknown(String), // A catch-all for errors not specifically categorized
 }
 

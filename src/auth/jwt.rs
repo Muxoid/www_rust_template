@@ -7,13 +7,36 @@ use jsonwebtoken::{
 use serde::{Deserialize, Serialize};
 use std::env;
 
+use actix_web::{dev, error, http, web, Error, FromRequest, HttpRequest, HttpResponse};
+use futures::future::{ready, Ready};
+
 #[derive(Debug, Serialize, Deserialize)]
-struct Claims {
-    sub: i64,
-    exp: u64,
+pub struct Claims {
+    pub sub: String,
+    pub exp: u64,
 }
 
-pub fn create_token(user_id: i64) -> Result<String, jsonwebtoken::errors::Error> {
+impl FromRequest for Claims {
+    type Error = Error;
+    type Future = Ready<Result<Claims, Error>>;
+
+    fn from_request(req: &HttpRequest, _: &mut dev::Payload) -> Self::Future {
+        dotenv().ok();
+        let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET can not be fetched.");
+        if let Some(cookie) = req.cookie("auth_token") {
+            let token = cookie.value();
+            let decoding_key = DecodingKey::from_secret(jwt_secret.as_ref());
+            match decode::<Claims>(token, &decoding_key, &Validation::new(Algorithm::HS256)) {
+                Ok(data) => ready(Ok(data.claims)),
+                Err(_) => ready(Err(error::ErrorUnauthorized("Invalid Token"))),
+            }
+        } else {
+            ready(Err(error::ErrorUnauthorized("Token Not Found")))
+        }
+    }
+}
+
+pub fn create_token(username: String) -> Result<String, jsonwebtoken::errors::Error> {
     dotenv().ok();
     let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET can not be fetched.");
 
@@ -27,7 +50,7 @@ pub fn create_token(user_id: i64) -> Result<String, jsonwebtoken::errors::Error>
     };
 
     let claims = Claims {
-        sub: user_id.to_owned(),
+        sub: username,
         exp: exp as u64,
     };
 
@@ -48,14 +71,3 @@ fn decode_token(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
     )
     .map(|data| data.claims)
 }
-/*
-pub async fn validate_jwt(
-    req: ServiceRequest,
-    credentials: BearerAuth,
-) -> Result<ServiceRequest, (Error, ServiceRequest)> {
-    match decode_token(credentials.token()) {
-        Ok(_claims) => Ok(req),
-        Err(_) => Err((actix_web::error::ErrorUnauthorized("Invalid token"), req)),
-    }
-}
-*/
