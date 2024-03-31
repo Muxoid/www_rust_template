@@ -55,7 +55,7 @@ async fn login(form: web::Form<LoginForm>) -> Result<impl Responder, AppError> {
         .is_ok();
 
     if passwd_check {
-        let redirect_url = format!("/u/{}/profile", user.name);
+        let redirect_url = format!("/u/{}", user.name);
         let token = auth::jwt::create_token(user.name)?;
         let cookie = Cookie::build("auth_token", token)
             .secure(true)
@@ -86,7 +86,7 @@ struct UserProfileTemplate {
 #[template(path = "forbidden.html")]
 struct ForbiddenTemplate;
 
-#[get("/u/{username}/profile")]
+#[get("/u/{username}")]
 async fn profile(
     claims: Claims,
     username_path: web::Path<String>,
@@ -107,16 +107,8 @@ async fn profile(
                 .map_err(|_| AppErrorType::TemplateRenderError)?;
             Ok(HttpResponse::Ok().content_type("text/html").body(rendered))
         }
-        Some(_) => {
-            let forbiden_template = ForbiddenTemplate;
-            let forbiden_rendered = forbiden_template
-                .render()
-                .map_err(|_| AppErrorType::TemplateRenderError)?;
-            Ok(HttpResponse::Forbidden()
-                .content_type("text/html")
-                .body(forbiden_rendered))
-        } // User exists but does not match the requested profile
-        None => Ok(HttpResponse::NotFound().finish()),
+        Some(_) => Err(AppError::from(AppErrorType::IncorrectLogin)),
+        None => Err(AppError::from(AppErrorType::IncorrectLogin)),
     }
 }
 
@@ -189,6 +181,17 @@ async fn index() -> impl Responder {
 }
 
 #[derive(Template)]
+#[template(path = "unauth.html")]
+struct UnauthTemplate;
+
+#[get("/unauth")]
+async fn unauth() -> impl Responder {
+    let template = UnauthTemplate;
+    let rendered = template.render().expect("Could not render /users!");
+    HttpResponse::Ok().body(rendered)
+}
+
+#[derive(Template)]
 #[template(path = "not_found.html")]
 struct NotFOundTemplate;
 
@@ -206,6 +209,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .service(register_user)
         .service(register_form)
         .service(profile)
+        .service(unauth)
         .default_service(
             web::route().to(not_found), // Use the custom not_found handler for unmatched routes
         );

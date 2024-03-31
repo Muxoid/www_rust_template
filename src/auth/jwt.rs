@@ -10,6 +10,8 @@ use std::env;
 use actix_web::{dev, error, http, web, Error, FromRequest, HttpRequest, HttpResponse};
 use futures::future::{ready, Ready};
 
+use crate::utils::error::{AppError, AppErrorType};
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String,
@@ -17,8 +19,8 @@ pub struct Claims {
 }
 
 impl FromRequest for Claims {
-    type Error = Error;
-    type Future = Ready<Result<Claims, Error>>;
+    type Error = AppError;
+    type Future = Ready<Result<Claims, AppError>>;
 
     fn from_request(req: &HttpRequest, _: &mut dev::Payload) -> Self::Future {
         dotenv().ok();
@@ -28,10 +30,10 @@ impl FromRequest for Claims {
             let decoding_key = DecodingKey::from_secret(jwt_secret.as_ref());
             match decode::<Claims>(token, &decoding_key, &Validation::new(Algorithm::HS256)) {
                 Ok(data) => ready(Ok(data.claims)),
-                Err(_) => ready(Err(error::ErrorUnauthorized("Invalid Token"))),
+                Err(_) => ready(Err(AppError::from(AppErrorType::IncorrectLogin))),
             }
         } else {
-            ready(Err(error::ErrorUnauthorized("Token Not Found")))
+            ready(Err(AppError::from(AppErrorType::IncorrectLogin)))
         }
     }
 }

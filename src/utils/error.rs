@@ -37,6 +37,7 @@ where
         }
     }
 }
+
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}: ", &self.error_type)?;
@@ -56,13 +57,22 @@ impl Debug for AppError {
 }
 
 impl actix_web::error::ResponseError for AppError {
-    fn status_code(&self) -> actix_web::http::StatusCode {
-        if self.error_type == AppErrorType::IncorrectLogin {
-            return actix_web::http::StatusCode::UNAUTHORIZED;
-        }
-        match self.inner.downcast_ref::<sqlx::Error>() {
-            Some(sqlx::Error::RowNotFound) => actix_web::http::StatusCode::NOT_FOUND,
-            _ => actix_web::http::StatusCode::BAD_REQUEST,
+    fn error_response(&self) -> actix_web::HttpResponse {
+        match self.error_type {
+            AppErrorType::IncorrectLogin => {
+                // Redirect to /login for IncorrectLogin error
+                actix_web::HttpResponse::SeeOther()
+                    .insert_header((actix_web::http::header::LOCATION, "/unauth"))
+                    .finish()
+            }
+            // Handle other errors according to their types
+            _ => {
+                // Fallback to a default error response if the error type is not IncorrectLogin
+                let status_code = self.status_code(); // Obtain the appropriate status code for the error
+                actix_web::HttpResponse::build(status_code)
+                    .content_type("application/json") // Example content type, adjust as needed
+                    .body(format!(r#"{{"error": "{}"}}"#, self.to_string()))
+            }
         }
     }
 }
